@@ -11,6 +11,10 @@ Android app that sends infrared codes through the phone's built-in IR blaster
   The Setup tab helps you find them (below).
 - The code has not been compiled or run on a device. Open it in Android Studio and build.
 
+## Download the APK
+
+Go to the repo's **Releases** page and download `IRRemote.apk` from "IR Remote (latest build)". Open it on your Android phone and allow installing from your browser when asked.
+
 ## Build
 
 1. Android Studio (Koala or newer) -> Open -> select this `IRRemote` folder.
