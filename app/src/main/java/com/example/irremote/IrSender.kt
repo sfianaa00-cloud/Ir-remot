@@ -32,7 +32,7 @@ object Nec {
         out += HDR_SPACE
         for (i in 0 until 32) {
             out += BIT_MARK
-            out += if ((word shr i) and 1L == 1L) ONE_SPACE else ZERO_SPACE
+            out += if (((word shr i) and 1L) == 1L) ONE_SPACE else ZERO_SPACE
         }
         out += BIT_MARK // stop bit
         return out.toIntArray()
