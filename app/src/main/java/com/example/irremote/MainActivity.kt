@@ -9,7 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -40,9 +39,9 @@ private class Store(ctx: Context) {
     var address: Int
         get() = p.getInt("address", 0)
         set(v) { p.edit().putInt("address", v).apply() }
-    var extended: Boolean
-        get() = p.getBoolean("extended", false)
-        set(v) { p.edit().putBoolean("extended", v).apply() }
+    var protocol: Protocol
+        get() = runCatching { Protocol.valueOf(p.getString("protocol", "NEC") ?: "NEC") }.getOrDefault(Protocol.NEC)
+        set(v) { p.edit().putString("protocol", v.name).apply() }
 
     fun command(key: String): Int? = if (p.contains("cmd_$key")) p.getInt("cmd_$key", 0) else null
     fun setCommand(key: String, v: Int) { p.edit().putInt("cmd_$key", v).apply() }
@@ -61,7 +60,7 @@ class MainActivity : ComponentActivity() {
 private fun Root(sender: IrSender, store: Store) {
     var tab by remember { mutableIntStateOf(0) }
     var address by remember { mutableIntStateOf(store.address) }
-    var extended by remember { mutableStateOf(store.extended) }
+    var protocol by remember { mutableStateOf(store.protocol) }
     var version by remember { mutableIntStateOf(0) } // bump to refresh after saving a code
 
     Scaffold { pad ->
@@ -80,12 +79,12 @@ private fun Root(sender: IrSender, store: Store) {
                 Tab(tab == 1, { tab = 1 }, text = { Text("Setup") })
             }
             if (tab == 0) {
-                RemoteScreen(sender, store, address, extended, version)
+                RemoteScreen(sender, store, address, protocol, version)
             } else {
                 SetupScreen(
-                    sender, store, address, extended,
+                    sender, store, address, protocol,
                     onAddress = { address = it; store.address = it },
-                    onExtended = { extended = it; store.extended = it },
+                    onProtocol = { protocol = it; store.protocol = it },
                     onSaved = { version++ }
                 )
             }
@@ -94,25 +93,24 @@ private fun Root(sender: IrSender, store: Store) {
 }
 
 @Composable
-private fun RemoteScreen(sender: IrSender, store: Store, address: Int, extended: Boolean, version: Int) {
-    // `version` is read so this recomposes after a code is assigned
-    @Suppress("UNUSED_VARIABLE") val v = version
+private fun RemoteScreen(sender: IrSender, store: Store, address: Int, protocol: Protocol, version: Int) {
+    @Suppress("UNUSED_VARIABLE") val v = version // read so this recomposes after a code is assigned
     Column(Modifier.verticalScroll(rememberScrollState()).padding(12.dp)) {
         KEYS.chunked(3).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { key ->
                     val cmd = store.command(key)
                     Button(
-                        onClick = { cmd?.let { sender.sendNec(address, it, extended) } },
+                        onClick = { cmd?.let { sender.send(protocol, address, it) } },
                         enabled = cmd != null && sender.available,
                         modifier = Modifier.weight(1f).padding(vertical = 4.dp)
-                    ) { Text(key) }
+                    ) { Text(key, maxLines = 1) }
                 }
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
         Text(
-            "Greyed-out keys have no code yet. Open Setup to find them.",
+            "Greyed-out keys have no code yet. Open Setup to find them. Protocol: ${protocol.label}",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -121,63 +119,79 @@ private fun RemoteScreen(sender: IrSender, store: Store, address: Int, extended:
 
 @Composable
 private fun SetupScreen(
-    sender: IrSender, store: Store, address: Int, extended: Boolean,
-    onAddress: (Int) -> Unit, onExtended: (Boolean) -> Unit, onSaved: () -> Unit
+    sender: IrSender, store: Store, address: Int, protocol: Protocol,
+    onAddress: (Int) -> Unit, onProtocol: (Protocol) -> Unit, onSaved: () -> Unit
 ) {
     var addrText by remember { mutableStateOf("%02X".format(address)) }
     var cmd by remember { mutableIntStateOf(0) }
     var target by remember { mutableStateOf(KEYS.first()) }
-    var menuOpen by remember { mutableStateOf(false) }
+    var keyMenu by remember { mutableStateOf(false) }
+    var protoMenu by remember { mutableStateOf(false) }
+    val count = protocol.maxCommand + 1
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("1. Protocol and address", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Most TVs use NEC at 38 kHz. The address is shown in hex (00 to FF; 0000 to FFFF if extended). " +
-                "Try 00 first, then other values if nothing reacts.",
+            "Try each protocol in turn. For every protocol, step through commands and watch the TV. " +
+                "Address is hex. Good first tries: 00, then 01, 04, 10, 20, 40, 80, FF. " +
+                "Sony and RC5 use small addresses (1 = TV for both).",
             style = MaterialTheme.typography.bodySmall
         )
+        Box {
+            OutlinedButton({ protoMenu = true }) { Text("Protocol: ${protocol.label}") }
+            DropdownMenu(protoMenu, { protoMenu = false }) {
+                Protocol.values().forEach { pr ->
+                    DropdownMenuItem(
+                        text = { Text(pr.label) },
+                        onClick = {
+                            onProtocol(pr)
+                            cmd = cmd.coerceAtMost(pr.maxCommand)
+                            val a = (addrText.toIntOrNull(16) ?: 0).coerceAtMost(pr.maxAddress)
+                            addrText = "%02X".format(a)
+                            onAddress(a)
+                            protoMenu = false
+                        }
+                    )
+                }
+            }
+        }
         OutlinedTextField(
             value = addrText,
             onValueChange = { t ->
                 addrText = t.uppercase().filter { it in "0123456789ABCDEF" }.take(4)
-                addrText.toIntOrNull(16)?.let(onAddress)
+                addrText.toIntOrNull(16)?.let { onAddress(it.coerceAtMost(protocol.maxAddress)) }
             },
-            label = { Text("Address (hex)") },
+            label = { Text("Address (hex, max %X)".format(protocol.maxAddress)) },
             singleLine = true
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(extended, onExtended)
-            Spacer(Modifier.width(8.dp))
-            Text("Extended NEC (16-bit address)")
-        }
 
         HorizontalDivider()
         Text("2. Find a working command", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Point the phone at the TV. Press Send and watch for a reaction (for example the power LED or volume bar). " +
-                "Step through commands 0 to 255 until the TV responds.",
+            "Point the phone's IR window at the TV from 1 to 2 m. Press Send and watch for a reaction " +
+                "(standby LED, volume bar). Commands run 0 to ${protocol.maxCommand}.",
             style = MaterialTheme.typography.bodySmall
         )
         Text("Command: 0x%02X  (%d)".format(cmd, cmd), style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton({ cmd = (cmd + 255) % 256 }) { Text("Prev") }
-            Button({ sender.sendNec(address, cmd, extended) }, enabled = sender.available) { Text("Send") }
-            OutlinedButton({ cmd = (cmd + 1) % 256 }) { Text("Next") }
-            OutlinedButton({
-                sender.sendNec(address, cmd, extended)
-                cmd = (cmd + 1) % 256
-            }, enabled = sender.available) { Text("Send+Next") }
+            OutlinedButton({ cmd = (cmd + count - 1) % count }) { Text("Prev") }
+            Button({ sender.send(protocol, address, cmd) }, enabled = sender.available) { Text("Send") }
+            OutlinedButton({ cmd = (cmd + 1) % count }) { Text("Next") }
         }
+        OutlinedButton({
+            sender.send(protocol, address, cmd)
+            cmd = (cmd + 1) % count
+        }, enabled = sender.available) { Text("Send + Next") }
 
         HorizontalDivider()
         Text("3. Assign it to a key", style = MaterialTheme.typography.titleMedium)
         Box {
-            OutlinedButton({ menuOpen = true }) { Text("Key: $target") }
-            DropdownMenu(menuOpen, { menuOpen = false }) {
+            OutlinedButton({ keyMenu = true }) { Text("Key: $target") }
+            DropdownMenu(keyMenu, { keyMenu = false }) {
                 KEYS.forEach { k ->
                     DropdownMenuItem(
                         text = { Text(k + (store.command(k)?.let { "  (0x%02X)".format(it) } ?: "")) },
-                        onClick = { target = k; menuOpen = false }
+                        onClick = { target = k; keyMenu = false }
                     )
                 }
             }
