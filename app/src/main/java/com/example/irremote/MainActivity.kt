@@ -13,12 +13,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
-/** Remote keys. Codes are NOT known for the ILK-M50Z1SA; the user assigns them in Setup. */
+/** Keys copied from the ILK remote, top to bottom. Codes are NOT known; assign them in Setup. */
 private val KEYS = listOf(
-    "Power", "Mute", "Source", "Menu", "Home", "Back",
-    "Vol+", "Vol-", "Ch+", "Ch-",
-    "Up", "Down", "Left", "Right", "OK",
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"
+    "Power", "Home", "Mouse",
+    "App", "Hotstar", "Prime",
+    "Setting", "YouTube", "Browser",
+    "Freeze", "Netflix", "Miracast",
+    "1", "2", "3",
+    "4", "5", "6",
+    "7", "8", "9",
+    "-/--", "0", "Recall",
+    "Ch+", "Source", "Ch-",
+    "Smart S", "Smart P", "Menu",
+    "Up", "Down", "Left",
+    "Right", "OK", "Exit",
+    "Vol+", "Rec", "Vol-",
+    "Prev", "Play/Pause", "Next",
+    "Rew", "Stop", "Fwd",
+    "Red", "Green", "Yellow",
+    "Info", "Audio", "PlayStore",
+    "Sleep", "Aspect", "Fav"
 )
 
 private class Store(ctx: Context) {
